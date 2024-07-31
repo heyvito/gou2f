@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+option go_package = "github.com/heyvito/gou2f/example/rpc";
+
+package rpc;
+
+service Example {
+  rpc Authenticate(AuthorizationData) returns (AuthorizationResult);
+}
+
+message AuthorizationResult {
+  string Message = 1;
+}
+
+message AuthorizationData {
+  bytes ClientData = 1;
+  bytes CredentialID = 2;
+  bytes AuthData = 3;
+  bytes Signature = 4;
+}

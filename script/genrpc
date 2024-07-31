@@ -1,0 +1,23 @@
+#!/bin/bash
+
+set -e -o pipefail
+
+function check_dep() {
+  name="$1"
+  exec_name="$2"
+  if ! hash "$exec_name" > /dev/null 2>&1 ; then
+    echo "$name ($exec_name) must be installed and in your PATH"
+    exit 1
+  fi
+}
+
+check_dep "Protocol buffer compiler" "protoc"
+check_dep "Protocol buffer compiler for Golang" "protoc-gen-go"
+check_dep "Protocol buffer compiler for gRPC" "protoc-gen-go-grpc"
+
+echo "Running protoc..."
+protoc --go_out=paths=source_relative:example/rpc  \
+       --go-grpc_out=paths=source_relative:example/rpc \
+       -I "$PWD/example/rpc" \
+       "$PWD/example/rpc/rpc.proto"
+echo "Done!"

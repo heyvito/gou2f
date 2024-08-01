@@ -6,6 +6,8 @@ import (
 	"github.com/karalabe/hid"
 )
 
+const u2fDebug = false
+
 func MakeRawDevice(base *hid.DeviceInfo) *RawDevice {
 	return &RawDevice{Device: base}
 }
@@ -36,13 +38,15 @@ func (d *RawDevice) Close() error {
 }
 
 func (d *RawDevice) Write(data []byte) (int, error) {
-	fmt.Printf("Device write: \n%s\n\n", hex.Dump(data))
+	if u2fDebug {
+		fmt.Printf("Device write: \n%s\n\n", hex.Dump(data))
+	}
 	return d.Handle.Write(data)
 }
 
 func (d *RawDevice) Read(data []byte) (int, error) {
 	n, err := d.Handle.Read(data)
-	if err == nil {
+	if err == nil && u2fDebug {
 		fmt.Printf("Device read: \n%s\n\n", hex.Dump(data[:n]))
 	}
 	return n, err

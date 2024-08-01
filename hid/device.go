@@ -236,7 +236,9 @@ func (d *Device) SendCBOR(command byte, object any) ([]byte, error) {
 		return nil, err
 	}
 
-	fmt.Printf("Outbound CBOR message: (0x%02x) %s\n", command, hex.EncodeToString(data))
+	if u2fDebug {
+		fmt.Printf("Outbound CBOR message: (0x%02x) %s\n", command, hex.EncodeToString(data))
+	}
 	data = append([]byte{command}, data...)
 
 	if err = d.request(u2fHIDCTAPCBOR, data); err != nil {
@@ -250,7 +252,9 @@ func (d *Device) SendCBOR(command byte, object any) ([]byte, error) {
 	if res[0] != 0x00 {
 		return nil, fmt.Errorf("CTAPError: 0x%02x", res[0])
 	}
-	fmt.Printf("Inbound CBOR message: %s\n", hex.EncodeToString(res[1:]))
+	if u2fDebug {
+		fmt.Printf("Inbound CBOR message: %s\n", hex.EncodeToString(res[1:]))
+	}
 	return res[1:], nil
 }
 

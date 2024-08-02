@@ -18,7 +18,7 @@ import (
 
 var enc = binary.BigEndian
 
-const u2fDebug = true
+const u2fDebug = false
 
 type APDURequest struct {
 	Instruction uint8

@@ -124,7 +124,23 @@ const u2fAuthenticate byte = 0x02
 // u2fVersion represents the read version string command
 const u2fVersion byte = 0x03
 
+const u2fGetInfo = 0x04
+
 const ctapAuthenticatorClientPIN byte = 0x06
+
+const ctapAuthenticatorCredentialManagement byte = 0x0A
+
+const ctapAuthenticatorCredentialManagementPreview byte = 0x41
+
+const (
+	ctapAuthenticatorCredMgmtGetCredsMetadata                      byte = 0x01
+	ctapAuthenticatorCredMgmtEnumerateRPsBegin                     byte = 0x02
+	ctapAuthenticatorCredMgmtEnumerateRPsGetNextRP                 byte = 0x03
+	ctapAuthenticatorCredMgmtEnumerateCredentialsBegin             byte = 0x04
+	ctapAuthenticatorCredMgmtEnumerateCredentialsGetNextCredential byte = 0x05
+	ctapAuthenticatorCredMgmtDeleteCredential                      byte = 0x06
+	ctapAuthenticatorCredMgmtUpdateUserInformation                 byte = 0x07
+)
 
 // u2fVendorFirst represents the first vendor defined command
 const u2fVendorFirst byte = 0x40

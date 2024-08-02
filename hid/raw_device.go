@@ -6,8 +6,6 @@ import (
 	"github.com/karalabe/hid"
 )
 
-const u2fDebug = false
-
 func MakeRawDevice(base *hid.DeviceInfo) *RawDevice {
 	return &RawDevice{Device: base}
 }

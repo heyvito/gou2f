@@ -96,6 +96,11 @@ type PublicKeyCredentialDescriptor struct {
 	Transports []string                `cbor:"transports"`
 }
 
+type FlatPublicKeyCredentialDescriptor struct {
+	Type string `cbor:"type"`
+	ID   []byte `cbor:"id"`
+}
+
 type AuthOpts struct {
 	ResidentKey      *bool `cbor:"rk,omitempty"`
 	UserVerification *bool `cbor:"uv,omitempty"`
@@ -282,4 +287,124 @@ type AssertionResult struct {
 
 func (a AssertionResult) ParseAuthData() (*AuthenticatorData, error) {
 	return ParseAuthenticatorData(a.AuthData)
+}
+
+type CredentialManagementRequest struct {
+	SubCommand        byte                              `cbor:"u8:0x1"`
+	SubCommandParams  CredentialManagementRequestParams `cbor:"u8:0x2"`
+	PinUvAuthProtocol uint8                             `cbor:"u8:0x3"`
+	PinUvAuthParam    []byte                            `cbor:"u8:0x4"`
+}
+
+type CredentialManagementRequestParams struct {
+	RPIDHash     []byte                         `cbor:"u8:0x1,omitempty"`
+	CredentialID *PublicKeyCredentialDescriptor `cbor:"u8:0x2,omitempty"`
+	User         *UserEntity                    `cbor:"u8:0x3,omitempty"`
+}
+
+type CredentialManagementResult struct {
+	ExistingResidentCredentialsCount             uint                               `cbor:"u8:0x1"`
+	MaxPossibleRemainingResidentCredentialsCount uint                               `cbor:"u8:0x2"`
+	RP                                           *RelayingParty                     `cbor:"u8:0x3"`
+	RPIDHash                                     []byte                             `cbor:"u8:0x4"`
+	TotalRPs                                     uint                               `cbor:"u8:0x5"`
+	User                                         *UserEntity                        `cbor:"u8:0x6"`
+	CredentialID                                 *FlatPublicKeyCredentialDescriptor `cbor:"u8:0x7"`
+	PublicKey                                    *cose.Key                          `cbor:"u8:0x8"`
+	TotalCredentials                             uint                               `cbor:"u8:0x9"`
+	CredProtect                                  uint                               `cbor:"u8:0xA"`
+	LargeBlobKey                                 []byte                             `cbor:"u8:0xB"`
+	ThirdPartyPayment                            bool                               `cbor:"u8:0xC"`
+}
+
+func DecodeCredentialManagementResult(data []byte) (*CredentialManagementResult, error) {
+	decoded, err := cbor.Unmarshal(data)
+	if err != nil {
+		return nil, err
+	}
+	r := &CredentialManagementResult{}
+	_, r.ExistingResidentCredentialsCount = cbor.MustBore[uint](decoded, "0->u:0x1")
+	_, r.MaxPossibleRemainingResidentCredentialsCount = cbor.MustBore[uint](decoded, "0->u:0x2")
+	if ok, v := cbor.MustBore[cbor.Map](decoded, "0->u:0x3"); ok {
+		r.RP = &RelayingParty{}
+		r.RP.ID, _ = cbor.MapGetKey[string](v, "id")
+	}
+	_, r.RPIDHash = cbor.MustBore[[]byte](decoded, "0->u:0x4")
+	_, r.TotalRPs = cbor.MustBore[uint](decoded, "0->u:0x5")
+	if ok, v := cbor.MustBore[cbor.Map](decoded, "0->u:0x6"); ok {
+		r.User = &UserEntity{}
+		r.User.ID, _ = cbor.MapGetKey[[]byte](v, "id")
+		r.User.Name, _ = cbor.MapGetKey[string](v, "name")
+		r.User.DisplayName, _ = cbor.MapGetKey[string](v, "displayName")
+	}
+	if ok, v := cbor.MustBore[cbor.Map](decoded, "0->u:0x7"); ok {
+		r.CredentialID = &FlatPublicKeyCredentialDescriptor{}
+		r.CredentialID.ID, _ = cbor.MapGetKey[[]byte](v, "id")
+		r.CredentialID.Type, _ = cbor.MapGetKey[string](v, "type")
+	}
+	if ok, v := cbor.MustBore[cbor.Map](decoded, "0->u:0x8"); ok {
+		r.PublicKey = cose.NewKeyFromCBOR(v)
+	}
+	_, r.TotalCredentials = cbor.MustBore[uint](decoded, "0->u:0x9")
+	_, r.CredProtect = cbor.MustBore[uint](decoded, "0->u:0xA")
+	return r, nil
+}
+
+type DeviceInfo struct {
+	Versions                         []string                  `cbor:"u8:0x1"`
+	Extensions                       []string                  `cbor:"u8:0x2"`
+	AAGUID                           []byte                    `cbor:"u8:0x3"`
+	Options                          map[string]bool           `cbor:"u8:0x4"`
+	MaxMessageSize                   uint16                    `cbor:"u8:0x5"`
+	PinUvAuthProtocols               []uint                    `cbor:"u8:0x6"`
+	CredentialCountInList            uint                      `cbor:"u8:0x7"`
+	MaxCredentialIdLength            uint8                     `cbor:"u8:0x8"`
+	Transports                       []string                  `cbor:"u8:0x9"`
+	Algorithms                       []PublicKeyCredentialType `cbor:"u8:0xA"`
+	MaxSerializedLargeBlobArray      uint32                    `cbor:"u8:0xB"`
+	ForcePINChange                   bool                      `cbor:"u8:0xC"`
+	MinPINLength                     uint                      `cbor:"u8:0xD"`
+	FirmwareVersion                  uint32                    `cbor:"u8:0xE"`
+	MaxCredBlobLength                uint32                    `cbor:"u8:0xF"`
+	MaxRPIDsForSetMinPinLength       uint32                    `cbor:"u8:0x10"`
+	PreferredPlatformUVAttempts      uint32                    `cbor:"u8:0x11"`
+	UVModality                       uint32                    `cbor:"u8:0x12"`
+	Certifications                   map[any]any               `cbor:"u8:0x13"`
+	RemainingDiscoverableCredentials uint32                    `cbor:"u8:0x14"`
+	VendorPrototypeConfigCommands    []uint32                  `cbor:"u8:0x15"`
+	AttestationFormats               []string                  `cbor:"u8:0x16"`
+	UVCountSinceLastPinEntry         uint32                    `cbor:"u8:0x17"`
+	LongTouchForReset                bool                      `cbor:"u8:0x18"`
+}
+
+func (d *DeviceInfo) IncludesVersion(v string) bool {
+	for _, ver := range d.Versions {
+		if ver == v {
+			return true
+		}
+	}
+	return false
+}
+
+type CredentialManagementPreviewRequest struct {
+	SubCommand       byte                                      `cbor:"u8:0x1"`
+	SubCommandParams *CredentialManagementPreviewRequestParams `cbor:"u8:0x2,omitempty"`
+	PinProtocol      uint8                                     `cbor:"u8:0x3"`
+	PinAuth          []byte                                    `cbor:"u8:0x4"`
+}
+
+type CredentialManagementPreviewRequestParams struct {
+	RPIDHash     []byte                             `cbor:"u8:0x1,omitempty"`
+	CredentialID *FlatPublicKeyCredentialDescriptor `cbor:"u8:0x2,omitempty"`
+}
+
+type EnumeratedRelayingParty struct {
+	RelayingParty RelayingParty
+	RPIDHash      []byte
+}
+
+type EnumeratedCredential struct {
+	User                       *UserEntity
+	CredentialID               *FlatPublicKeyCredentialDescriptor
+	CredentialProtectionPolicy any
 }

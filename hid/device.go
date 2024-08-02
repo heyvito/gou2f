@@ -2,17 +2,14 @@ package hid
 
 import (
 	"bytes"
-	"crypto/hmac"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"github.com/heyvito/gou2f/cbor"
-	"github.com/heyvito/gou2f/cose"
 	"github.com/heyvito/gou2f/fido"
 	"github.com/heyvito/gou2f/sec"
 	"github.com/karalabe/hid"
-	"hash"
 	"io"
 )
 
@@ -20,6 +17,8 @@ import (
 // https://fidoalliance.org/specs/fido-u2f-v1.1-id-20160915/fido-u2f-hid-protocol-v1.1-id-20160915.html
 
 var enc = binary.BigEndian
+
+const u2fDebug = true
 
 type APDURequest struct {
 	Instruction uint8
@@ -78,15 +77,18 @@ func newDevice(dev baseDevice) *Device {
 		device:       dev,
 		channelID:    cidBroadcast,
 		randomReader: rand.Reader,
+		deviceInfo:   nil,
 	}
 }
 
 type Device struct {
-	device       baseDevice
-	channelID    uint32
-	randomReader io.Reader
-	sharedSecret *sec.SharedSecret
-	pinToken     *sec.PinToken
+	device            baseDevice
+	channelID         uint32
+	randomReader      io.Reader
+	sharedSecret      *sec.SharedSecret
+	pinToken          *sec.PinToken
+	deviceInfo        *fido.DeviceInfo
+	credMgmtIsPreview bool
 }
 
 func (d *Device) Open() (*fido.InitResponse, error) {
@@ -130,6 +132,13 @@ func (d *Device) tryInitDevice() (*fido.InitResponse, error) {
 	}
 
 	d.channelID = init.ChannelID
+	d.deviceInfo, err = d.GetInfo()
+	if err != nil {
+		return nil, err
+	}
+
+	d.credMgmtIsPreview = d.deviceInfo.IncludesVersion("FIDO_2_1_PRE") && d.deviceInfo.Options["credentialMgmtPreview"]
+
 	return init, nil
 }
 
@@ -208,7 +217,7 @@ func (d *Device) response(command byte) ([]byte, error) {
 	return data, nil
 }
 
-func (d *Device) SendAPDU(req *APDURequest) (*APDUResponse, error) {
+func (d *Device) sendAPDU(req *APDURequest) (*APDUResponse, error) {
 	if err := d.request(u2fHIDMessage, req.Encode()); err != nil {
 		return nil, err
 	}
@@ -230,7 +239,7 @@ func (d *Device) SendAPDU(req *APDURequest) (*APDUResponse, error) {
 	return result, nil
 }
 
-func (d *Device) SendCBOR(command byte, object any) ([]byte, error) {
+func (d *Device) sendCBOR(command byte, object any) ([]byte, error) {
 	data, err := cbor.Marshal(object)
 	if err != nil {
 		return nil, err
@@ -250,70 +259,12 @@ func (d *Device) SendCBOR(command byte, object any) ([]byte, error) {
 		return nil, err
 	}
 	if res[0] != 0x00 {
-		return nil, fmt.Errorf("CTAPError: 0x%02x", res[0])
+		return nil, CTAPError(res[0])
 	}
 	if u2fDebug {
 		fmt.Printf("Inbound CBOR message: %s\n", hex.EncodeToString(res[1:]))
 	}
 	return res[1:], nil
-}
-
-func (d *Device) GetVersion() (string, error) {
-	res, err := d.SendAPDU(&APDURequest{
-		Instruction: u2fVersion,
-		ParameterA:  0,
-		ParameterB:  0,
-		Data:        nil,
-	})
-	if err != nil {
-		return "", err
-	}
-
-	return string(res.Response), nil
-}
-
-func (d *Device) GetPin(userPin string) error {
-	res, err := d.SendCBOR(ctapAuthenticatorClientPIN, fido.ClientPinGetKeyAgreement)
-	if err != nil {
-		return nil
-	}
-	decoded, err := cbor.Unmarshal(res)
-	if err != nil {
-		return err
-	}
-	ok, keyMap := cbor.MustBore[cbor.Map](decoded, "0->u:1")
-	if !ok {
-		return fmt.Errorf("invalid response from authenticator")
-	}
-	sharedKey := cose.NewKeyFromCBOR(keyMap)
-	sharedSecret, err := sec.NewSharedSecret(sharedKey)
-	if err != nil {
-		return fmt.Errorf("failed initialising secret from shared key: %w", err)
-	}
-	d.sharedSecret = sharedSecret
-	encodedPin, err := sharedSecret.EncryptPin(userPin)
-	if err != nil {
-		return fmt.Errorf("failed encrypting pin: %w", err)
-	}
-
-	getTokenData, err := fido.ClientPinGetToken(sharedSecret.PublicKey, encodedPin)
-	if err != nil {
-		return fmt.Errorf("failed fetching token data: %w", err)
-	}
-
-	res, err = d.SendCBOR(ctapAuthenticatorClientPIN, getTokenData)
-	if err != nil {
-		return err
-	}
-
-	token, err := extractTokenFromCBOR(res)
-	if err != nil {
-		return err
-	}
-
-	d.pinToken, err = d.sharedSecret.DecryptPinToken(token)
-
-	return err
 }
 
 func extractTokenFromCBOR(res []byte) ([]byte, error) {
@@ -328,60 +279,10 @@ func extractTokenFromCBOR(res []byte) ([]byte, error) {
 	return data, nil
 }
 
-func (d *Device) Register(msg fido.MakeCredential) (*fido.RegisterAttestation, error) {
-	res, err := d.SendCBOR(u2fRegister, msg)
-	if err != nil {
-		return nil, err
+func intoArray[T any](_ bool, v []interface{}) []T {
+	arr := make([]T, len(v))
+	for i, v := range v {
+		arr[i] = v.(T)
 	}
-
-	return fido.ParseRegisterAttestation(res)
-}
-
-func (d *Device) HashWithPinToken(fn func() hash.Hash, data []byte) ([]byte, error) {
-	if d.pinToken == nil {
-		return nil, fmt.Errorf("must call GetPin first")
-	}
-	digest := hmac.New(fn, d.pinToken.Key)
-	digest.Write(data)
-	return digest.Sum(nil), nil
-}
-
-func (d *Device) Assert(request fido.AssertionRequest) (*fido.AssertionResult, error) {
-	res, err := d.SendCBOR(u2fAuthenticate, request)
-	if err != nil {
-		return nil, err
-	}
-
-	decoded, err := cbor.Unmarshal(res)
-	if err != nil {
-		return nil, err
-	}
-	ok, credID := cbor.MustBore[[]byte](decoded, "0->u:0x1->t:id")
-	if !ok {
-		return nil, fmt.Errorf("invalid response from authenticator")
-	}
-	ok, credType := cbor.MustBore[string](decoded, "0->u:0x1->t:type")
-	if !ok {
-		return nil, fmt.Errorf("invalid response from authenticator")
-	}
-	ok, authData := cbor.MustBore[[]byte](decoded, "0->u:0x2")
-	if !ok {
-		return nil, fmt.Errorf("invalid response from authenticator")
-	}
-	ok, signature := cbor.MustBore[[]byte](decoded, "0->u:0x3")
-	if !ok {
-		return nil, fmt.Errorf("invalid response from authenticator")
-	}
-
-	return &fido.AssertionResult{
-		Credential: fido.PublicKeyCredentialDescriptor{
-			Type: fido.PublicKeyCredentialType{
-				Type: credType,
-			},
-			ID:         credID,
-			Transports: nil,
-		},
-		AuthData:  authData,
-		Signature: signature,
-	}, nil
+	return arr
 }

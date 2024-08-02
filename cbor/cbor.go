@@ -12,6 +12,16 @@ const majorTypeMask = uint8(0x1F)
 
 type Map []Pair
 
+func MapGetKey[T any](m Map, k any) (r T, ok bool) {
+	for _, pair := range m {
+		if pair.Key == k {
+			r, ok = pair.Value.(T)
+			return
+		}
+	}
+	return
+}
+
 type Pair struct{ Key, Value any }
 
 func Unmarshal(data []byte) ([]any, error) {

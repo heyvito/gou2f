@@ -6,8 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"github.com/heyvito/gou2f/cbor"
-	"github.com/heyvito/gou2f/cose"
+	"github.com/heyvito/gou2f/sec"
 	"strings"
 )
 
@@ -111,16 +110,16 @@ var ClientPinGetKeyAgreement = map[uint8]any{
 	0x02: 0x02, // Get Key Agreement
 }
 
-func ClientPinGetToken(key *cose.Key, pinHash []byte) (any, error) {
-	ok, keyCurve := cose.KeyParamAs[uint](key, -1)
+func ClientPinGetToken(key *sec.COSEKey, pinHash []byte) (any, error) {
+	ok, keyCurve := sec.KeyParamAs[uint](key, -1)
 	if !ok {
 		return nil, fmt.Errorf("invalid key parameter")
 	}
-	ok, keyX := cose.KeyParamAs[[]byte](key, -2)
+	ok, keyX := sec.KeyParamAs[[]byte](key, -2)
 	if !ok {
 		return nil, fmt.Errorf("invalid key parameter")
 	}
-	ok, keyY := cose.KeyParamAs[[]byte](key, -3)
+	ok, keyY := sec.KeyParamAs[[]byte](key, -3)
 	if !ok {
 		return nil, fmt.Errorf("invalid key parameter")
 	}
@@ -137,57 +136,15 @@ func ClientPinGetToken(key *cose.Key, pinHash []byte) (any, error) {
 }
 
 type AttestationStatement struct {
-	Algorithm int32
-	Signature []byte
-	X5C       []byte
-}
-
-func ParseRegisterAttestation(data []byte) (*RegisterAttestation, error) {
-	decoded, err := cbor.Unmarshal(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal registration response: %w", err)
-	}
-
-	ok, format := cbor.MustBore[string](decoded, "0->u:0x1")
-	if !ok {
-		return nil, fmt.Errorf("invalid response from authenticator")
-	}
-
-	ok, authData := cbor.MustBore[[]byte](decoded, "0->u:0x2")
-	if !ok {
-		return nil, fmt.Errorf("invalid response from authenticator")
-	}
-
-	ok, alg := cbor.MustBore[int](decoded, "0->u:0x3->t:alg")
-	if !ok {
-		return nil, fmt.Errorf("invalid response from authenticator")
-	}
-
-	ok, sig := cbor.MustBore[[]byte](decoded, "0->u:0x3->t:sig")
-	if !ok {
-		return nil, fmt.Errorf("invalid response from authenticator")
-	}
-
-	ok, x5c := cbor.MustBore[[]byte](decoded, "0->u:0x3->t:x5c->0")
-	if !ok {
-		return nil, fmt.Errorf("invalid response from authenticator")
-	}
-
-	return &RegisterAttestation{
-		Format:   format,
-		AuthData: authData,
-		AttestationStatement: AttestationStatement{
-			Algorithm: int32(alg),
-			Signature: sig,
-			X5C:       x5c,
-		},
-	}, nil
+	Algorithm int32    `cbor:"alg"`
+	Signature []byte   `cbor:"sig"`
+	X5C       [][]byte `cbor:"x5c"`
 }
 
 type RegisterAttestation struct {
-	Format               string
-	AuthData             []byte
-	AttestationStatement AttestationStatement
+	Format               string               `cbor:"u8:0x1"`
+	AuthData             []byte               `cbor:"u8:0x2"`
+	AttestationStatement AttestationStatement `cbor:"u8:0x3"`
 }
 
 func (r *RegisterAttestation) AuthenticatorData() (*AuthenticatorData, error) {
@@ -222,32 +179,32 @@ func ParseAuthenticatorData(data []byte) (*AuthenticatorData, error) {
 		if _, err = reader.Read(ac.CredentialID); err != nil {
 			return nil, err
 		}
-		var cborData []any
-		if cborData, err = cbor.UnmarshalOne(reader); err != nil {
-			return nil, err
-		}
-		ok, coseMap := cbor.MustBore[cbor.Map](cborData, "0")
-		if !ok {
-			return nil, fmt.Errorf("invalid authentication data")
-		}
-		ac.CredentialPublicKey = cose.NewKeyFromCBOR(coseMap)
-		a.AttestedCredentialData = &ac
+		//var cborData []any
+		//if cborData, err = cbor.UnmarshalOne(reader); err != nil {
+		//	return nil, err
+		//}
+		//ok, coseMap := cbor.MustBore[cbor.Map](cborData, "0")
+		//if !ok {
+		//	return nil, fmt.Errorf("invalid authentication data")
+		//}
+		//ac.CredentialPublicKey = cose.NewCOSEKeyFromCBOR(coseMap)
+		//a.AttestedCredentialData = &ac
 	}
 
 	if a.HasExtensions() {
-		dec, err := cbor.UnmarshalReader(reader)
-		if err != nil {
-			return nil, err
-		}
-		a.Extensions = make(map[string]any)
-		ok, cMap := cbor.MustBore[cbor.Map](dec, "0")
-		if ok {
-			for _, v := range cMap {
-				if k, ok := v.Key.(string); ok {
-					a.Extensions[k] = v.Value
-				}
-			}
-		}
+		//dec, err := cbor.UnmarshalReader(reader)
+		//if err != nil {
+		//	return nil, err
+		//}
+		//a.Extensions = make(map[string]any)
+		//ok, cMap := cbor.MustBore[cbor.Map](dec, "0")
+		//if ok {
+		//	for _, v := range cMap {
+		//		if k, ok := v.Key.(string); ok {
+		//			a.Extensions[k] = v.Value
+		//		}
+		//	}
+		//}
 	}
 	return a, nil
 }
@@ -271,7 +228,7 @@ type AttestedCredentialData struct {
 	AAGUID              []byte
 	CredentialLength    uint16
 	CredentialID        []byte
-	CredentialPublicKey *cose.Key
+	CredentialPublicKey *sec.COSEKey
 }
 
 type AssertionRequest struct {
@@ -310,7 +267,7 @@ type CredentialManagementResult struct {
 	TotalRPs                                     uint                               `cbor:"u8:0x5"`
 	User                                         *UserEntity                        `cbor:"u8:0x6"`
 	CredentialID                                 *FlatPublicKeyCredentialDescriptor `cbor:"u8:0x7"`
-	PublicKey                                    *cose.Key                          `cbor:"u8:0x8"`
+	PublicKey                                    *sec.COSEKey                       `cbor:"u8:0x8"`
 	TotalCredentials                             uint                               `cbor:"u8:0x9"`
 	CredProtect                                  uint                               `cbor:"u8:0xA"`
 	LargeBlobKey                                 []byte                             `cbor:"u8:0xB"`
@@ -318,36 +275,37 @@ type CredentialManagementResult struct {
 }
 
 func DecodeCredentialManagementResult(data []byte) (*CredentialManagementResult, error) {
-	decoded, err := cbor.Unmarshal(data)
-	if err != nil {
-		return nil, err
-	}
-	r := &CredentialManagementResult{}
-	_, r.ExistingResidentCredentialsCount = cbor.MustBore[uint](decoded, "0->u:0x1")
-	_, r.MaxPossibleRemainingResidentCredentialsCount = cbor.MustBore[uint](decoded, "0->u:0x2")
-	if ok, v := cbor.MustBore[cbor.Map](decoded, "0->u:0x3"); ok {
-		r.RP = &RelayingParty{}
-		r.RP.ID, _ = cbor.MapGetKey[string](v, "id")
-	}
-	_, r.RPIDHash = cbor.MustBore[[]byte](decoded, "0->u:0x4")
-	_, r.TotalRPs = cbor.MustBore[uint](decoded, "0->u:0x5")
-	if ok, v := cbor.MustBore[cbor.Map](decoded, "0->u:0x6"); ok {
-		r.User = &UserEntity{}
-		r.User.ID, _ = cbor.MapGetKey[[]byte](v, "id")
-		r.User.Name, _ = cbor.MapGetKey[string](v, "name")
-		r.User.DisplayName, _ = cbor.MapGetKey[string](v, "displayName")
-	}
-	if ok, v := cbor.MustBore[cbor.Map](decoded, "0->u:0x7"); ok {
-		r.CredentialID = &FlatPublicKeyCredentialDescriptor{}
-		r.CredentialID.ID, _ = cbor.MapGetKey[[]byte](v, "id")
-		r.CredentialID.Type, _ = cbor.MapGetKey[string](v, "type")
-	}
-	if ok, v := cbor.MustBore[cbor.Map](decoded, "0->u:0x8"); ok {
-		r.PublicKey = cose.NewKeyFromCBOR(v)
-	}
-	_, r.TotalCredentials = cbor.MustBore[uint](decoded, "0->u:0x9")
-	_, r.CredProtect = cbor.MustBore[uint](decoded, "0->u:0xA")
-	return r, nil
+	//decoded, err := cbor.Unmarshal(data)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//r := &CredentialManagementResult{}
+	//_, r.ExistingResidentCredentialsCount = cbor.MustBore[uint](decoded, "0->u:0x1")
+	//_, r.MaxPossibleRemainingResidentCredentialsCount = cbor.MustBore[uint](decoded, "0->u:0x2")
+	//if ok, v := cbor.MustBore[cbor.Map](decoded, "0->u:0x3"); ok {
+	//	r.RP = &RelayingParty{}
+	//	r.RP.ID, _ = cbor.MapGetKey[string](v, "id")
+	//}
+	//_, r.RPIDHash = cbor.MustBore[[]byte](decoded, "0->u:0x4")
+	//_, r.TotalRPs = cbor.MustBore[uint](decoded, "0->u:0x5")
+	//if ok, v := cbor.MustBore[cbor.Map](decoded, "0->u:0x6"); ok {
+	//	r.User = &UserEntity{}
+	//	r.User.ID, _ = cbor.MapGetKey[[]byte](v, "id")
+	//	r.User.Name, _ = cbor.MapGetKey[string](v, "name")
+	//	r.User.DisplayName, _ = cbor.MapGetKey[string](v, "displayName")
+	//}
+	//if ok, v := cbor.MustBore[cbor.Map](decoded, "0->u:0x7"); ok {
+	//	r.CredentialID = &FlatPublicKeyCredentialDescriptor{}
+	//	r.CredentialID.ID, _ = cbor.MapGetKey[[]byte](v, "id")
+	//	r.CredentialID.Type, _ = cbor.MapGetKey[string](v, "type")
+	//}
+	//if ok, v := cbor.MustBore[cbor.Map](decoded, "0->u:0x8"); ok {
+	//	r.PublicKey = cose.NewCOSEKeyFromCBOR(v)
+	//}
+	//_, r.TotalCredentials = cbor.MustBore[uint](decoded, "0->u:0x9")
+	//_, r.CredProtect = cbor.MustBore[uint](decoded, "0->u:0xA")
+	//return r, nil
+	return nil, nil
 }
 
 type DeviceInfo struct {

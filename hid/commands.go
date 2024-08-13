@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"github.com/heyvito/gou2f/cbor"
-	"github.com/heyvito/gou2f/cose"
 	"github.com/heyvito/gou2f/fido"
 	"github.com/heyvito/gou2f/sec"
 	"hash"
@@ -96,7 +95,7 @@ func (d *Device) GetPin(userPin string) error {
 	if !ok {
 		return fmt.Errorf("invalid response from authenticator")
 	}
-	sharedKey := cose.NewKeyFromCBOR(keyMap)
+	sharedKey := sec.NewCOSEKeyFromCBOR(keyMap)
 	sharedSecret, err := sec.NewSharedSecret(sharedKey)
 	if err != nil {
 		return fmt.Errorf("failed initialising secret from shared key: %w", err)

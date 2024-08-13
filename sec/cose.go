@@ -1,4 +1,4 @@
-package cose
+package sec
 
 import (
 	"bytes"
@@ -6,8 +6,8 @@ import (
 	"unsafe"
 )
 
-func NewKeyFromCBOR(m cbor.Map) *Key {
-	k := Key{
+func NewCOSEKeyFromCBOR(m cbor.Map) *COSEKey {
+	k := COSEKey{
 		Parameters: make(map[uint16]any),
 	}
 	for _, i := range m {
@@ -32,26 +32,26 @@ func NewKeyFromCBOR(m cbor.Map) *Key {
 			// -1: Curves
 			//      1: P-256(EC2)
 			//      6: Ed25519(OKP)
-			k.Parameters[WrapIntToUint16(-1)] = i.Value.(uint)
+			k.Parameters[wrapIntToUint16(-1)] = i.Value.(uint)
 		case int(-2), int(-3):
-			k.Parameters[WrapIntToUint16(i.Key.(int))] = i.Value.([]byte)
+			k.Parameters[wrapIntToUint16(i.Key.(int))] = i.Value.([]byte)
 		}
 	}
 
 	return &k
 }
 
-func WrapIntToUint16(v int) uint16 { return *(*uint16)(unsafe.Pointer(&v)) }
+func wrapIntToUint16(v int) uint16 { return *(*uint16)(unsafe.Pointer(&v)) }
 
-type Key struct {
+type COSEKey struct {
 	KeyType    uint16
 	Algorithm  int32
 	Parameters map[uint16]any
 }
 
-func KeyParamAs[T any](k *Key, paramID int) (ok bool, res T) {
+func KeyParamAs[T any](k *COSEKey, paramID int) (ok bool, res T) {
 	var raw any
-	raw, ok = k.Parameters[WrapIntToUint16(paramID)]
+	raw, ok = k.Parameters[wrapIntToUint16(paramID)]
 	if !ok {
 		return
 	}
@@ -63,12 +63,12 @@ func KeyParamAs[T any](k *Key, paramID int) (ok bool, res T) {
 	return
 }
 
-func (k *Key) PublicKeyDER() []byte {
+func (k *COSEKey) PublicKeyDER() []byte {
 	switch k.KeyType {
 	case 1:
 		// ED25519
 		// OKP -> Needs X
-		if raw, ok := k.Parameters[WrapIntToUint16(-2)]; ok {
+		if raw, ok := k.Parameters[wrapIntToUint16(-2)]; ok {
 			if b, ok := raw.([]byte); ok {
 				return b
 			}
@@ -78,12 +78,12 @@ func (k *Key) PublicKeyDER() []byte {
 		// EC2 -> Needs X & Y
 		buf := bytes.NewBuffer(nil)
 		buf.WriteByte(0x04) // Octet String
-		rawX, ok := k.Parameters[WrapIntToUint16(-2)]
+		rawX, ok := k.Parameters[wrapIntToUint16(-2)]
 		if !ok {
 			break
 		}
 
-		rawY, ok := k.Parameters[WrapIntToUint16(-3)]
+		rawY, ok := k.Parameters[wrapIntToUint16(-3)]
 		if !ok {
 			break
 		}

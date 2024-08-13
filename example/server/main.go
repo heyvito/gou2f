@@ -70,7 +70,7 @@ func (ExServer) Authenticate(_ context.Context, rad *rpc.AuthorizationData) (*rp
 		return nil, status.Error(codes.PermissionDenied, "Invalid CredentialID")
 	}
 
-	rawPeerPublic, err := sec.P256FromCose(ad.AttestedCredentialData.CredentialPublicKey)
+	rawPeerPublic, err := sec.P256FromCOSE(ad.AttestedCredentialData.CredentialPublicKey)
 	if err != nil {
 		return nil, err
 	}

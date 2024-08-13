@@ -5,11 +5,10 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
-	"github.com/heyvito/gou2f/cose"
 )
 
 type SharedSecret struct {
-	PublicKey *cose.Key
+	PublicKey *COSEKey
 	Secret    []byte
 }
 
@@ -19,13 +18,13 @@ func deriveSharedSecret(private *ecdsa.PrivateKey, public *ecdsa.PublicKey) []by
 	return sharedSecret[:]
 }
 
-func NewSharedSecret(peerKey *cose.Key) (*SharedSecret, error) {
+func NewSharedSecret(peerKey *COSEKey) (*SharedSecret, error) {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, err
 	}
 
-	rawPeerPublic, err := P256FromCose(peerKey)
+	rawPeerPublic, err := P256FromCOSE(peerKey)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +41,7 @@ func NewSharedSecret(peerKey *cose.Key) (*SharedSecret, error) {
 		return nil, err
 	}
 	return &SharedSecret{
-		PublicKey: publicP256.ToCose(),
+		PublicKey: publicP256.ToCOSE(),
 		Secret:    sharedSecret,
 	}, nil
 }

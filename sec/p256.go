@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"fmt"
-	"github.com/heyvito/gou2f/cose"
 	"math/big"
 )
 
@@ -14,14 +13,14 @@ type P256Key struct {
 	Y []byte
 }
 
-func (p *P256Key) ToCose() *cose.Key {
-	return &cose.Key{
+func (p *P256Key) ToCOSE() *COSEKey {
+	return &COSEKey{
 		KeyType:   2,
 		Algorithm: -25,
 		Parameters: map[uint16]any{
-			cose.WrapIntToUint16(-1): uint(1),
-			cose.WrapIntToUint16(-2): p.X,
-			cose.WrapIntToUint16(-3): p.Y,
+			wrapIntToUint16(-1): uint(1),
+			wrapIntToUint16(-2): p.X,
+			wrapIntToUint16(-3): p.Y,
 		},
 	}
 }
@@ -34,22 +33,22 @@ func (p *P256Key) Bytes() []byte {
 	return data
 }
 
-func P256FromCose(k *cose.Key) (*P256Key, error) {
+func P256FromCOSE(k *COSEKey) (*P256Key, error) {
 	if k.KeyType != 2 || (k.Algorithm != -7 && k.Algorithm != -25) {
 		return nil, fmt.Errorf("P256: invalid key type")
 	}
 
-	ok, curve := cose.KeyParamAs[uint](k, -1)
+	ok, curve := KeyParamAs[uint](k, -1)
 	if !ok || curve != 1 {
-		return nil, fmt.Errorf("P256: invalid curve type")
+		return nil, fmt.Errorf("P256FromCOSE: invalid curve type")
 	}
-	ok, x := cose.KeyParamAs[[]byte](k, -2)
+	ok, x := KeyParamAs[[]byte](k, -2)
 	if !ok {
-		return nil, fmt.Errorf("P256: invalid key type")
+		return nil, fmt.Errorf("P256FromCOSE: invalid key type")
 	}
-	ok, y := cose.KeyParamAs[[]byte](k, -3)
+	ok, y := KeyParamAs[[]byte](k, -3)
 	if !ok {
-		return nil, fmt.Errorf("P256: invalid key type")
+		return nil, fmt.Errorf("P256FromCOSE: invalid key type")
 	}
 
 	return &P256Key{

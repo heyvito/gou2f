@@ -2,8 +2,8 @@ package cbor
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math"
 )
@@ -11,6 +11,16 @@ import (
 const majorTypeMask = uint8(0x1F)
 
 type Map []Pair
+
+func (m Map) FindKey(key any) *Pair {
+	for _, v := range m {
+		if v.Key == key {
+			return &v
+		}
+	}
+
+	return nil
+}
 
 func MapGetKey[T any](m Map, k any) (r T, ok bool) {
 	for _, pair := range m {
@@ -24,32 +34,11 @@ func MapGetKey[T any](m Map, k any) (r T, ok bool) {
 
 type Pair struct{ Key, Value any }
 
-func Unmarshal(data []byte) ([]any, error) {
-	return UnmarshalReader(bufio.NewReader(bytes.NewReader(data)))
-}
-
-func UnmarshalReader(r *bufio.Reader) ([]any, error) {
-	dec := NewDecoder(r)
-	if err := dec.decode(); err != nil {
-		return nil, err
-	}
-	return dec.objects, nil
-}
-
-func UnmarshalOne(data *bufio.Reader) ([]any, error) {
-	dec := NewDecoder(data)
-	if err := dec.decodeOne(); err != nil {
-		return nil, err
-	}
-	return dec.objects, nil
-}
-
 func NewDecoder(data *bufio.Reader) *Decoder {
 	return &Decoder{data: data}
 }
 
 type Decoder struct {
-	objects []any
 	data    *bufio.Reader
 	cur     int
 	lastTag uint64
@@ -57,14 +46,6 @@ type Decoder struct {
 }
 
 var enc = binary.BigEndian
-
-func (d *Decoder) push(v any) {
-	if d.isTag {
-		d.lastTag = v.(uint64)
-		return
-	}
-	d.objects = append(d.objects, v)
-}
 
 func (d *Decoder) peek() (byte, error) {
 	p, err := d.data.Peek(1)
@@ -101,47 +82,48 @@ func (d *Decoder) peekMajorType() (byte, error) {
 	return b >> 5, nil
 }
 
-func (d *Decoder) decode() error {
+func (d *Decoder) decode() (any, error) {
 	for {
-		err := d.decodeOne()
+		v, err := d.decodeOne()
 		if err == io.EOF {
-			return nil
+			return v, nil
 		} else {
-			return err
+			return v, err
 		}
 	}
 }
 
-func (d *Decoder) decodeOne() error {
+func (d *Decoder) decodeOne() (any, error) {
 	p, err := d.peekMajorType()
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var v any
 	switch p {
 	case 0: // unsigned integer
-		err = d.parseUnsignedInteger()
+		v, err = d.parseUnsignedInteger()
 	case 1: // negative integer
-		err = d.parseNegativeInteger()
+		v, err = d.parseNegativeInteger()
 	case 2: // byte string
-		err = d.parseByteString()
+		v, err = d.parseByteString()
 	case 3: // text string
-		err = d.parseTextString()
+		v, err = d.parseTextString()
 	case 4: // array
-		err = d.parseArray()
+		v, err = d.parseArray()
 	case 5: // map of pairs of data items
-		err = d.parseMap()
+		v, err = d.parseMap()
 	case 6: // optional semantic tagging of other major types
 		d.isTag = true
-		err = d.parseUnsignedInteger()
+		v, err = d.parseUnsignedInteger()
 		if err != nil {
 			d.isTag = false
 		}
 	case 7: // floating-point numbers and simple data types that need no content, as well as the "break" stop code.
-		err = d.parseMiscValue()
+		v, err = d.parseMiscValue()
 	}
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if d.isTag {
@@ -150,114 +132,100 @@ func (d *Decoder) decodeOne() error {
 		d.lastTag = 0
 	}
 
-	return nil
+	return v, nil
 }
 
-func (d *Decoder) parseUnsignedInteger() error {
+func (d *Decoder) parseUnsignedInteger() (uint64, error) {
 	p, err := d.pop()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	v := p & majorTypeMask
 	if v < 24 {
-		if d.isTag {
-			d.push(uint64(v))
-		} else {
-			d.push(uint(v))
-		}
-		return nil
+		return uint64(v), err
 	}
 	switch v {
 	case 24:
 		p, err = d.pop()
 		if err != nil {
-			return err
+			return 0, err
 		}
-		if d.isTag {
-			d.push(uint64(p))
-		} else {
-			d.push(p)
-		}
+
+		return uint64(p), nil
+
 	case 25:
 		a, err := d.take(2)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		if d.isTag {
-			d.push(uint64(enc.Uint16(a)))
-		} else {
-			d.push(enc.Uint16(a))
-		}
+		return uint64(enc.Uint16(a)), nil
+
 	case 26:
 		a, err := d.take(4)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		if d.isTag {
-			d.push(uint64(enc.Uint32(a)))
-		} else {
-			d.push(enc.Uint32(a))
-		}
+
+		return uint64(enc.Uint32(a)), nil
 	case 27:
 		a, err := d.take(8)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		d.push(enc.Uint64(a))
-	default:
-		panic("Invalid CBOR")
+		return enc.Uint64(a), nil
 	}
 
-	return nil
+	return 0, fmt.Errorf("invalid CBOR")
 }
 
-func (d *Decoder) parseNegativeInteger() error {
+func (d *Decoder) parseNegativeInteger() (int64, error) {
 	p, err := d.pop()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	v := p & majorTypeMask
 	if v < 24 {
-		d.push(-1 - int(v))
-		return nil
+		return -1 - int64(v), nil
 	}
 
 	switch v {
 	case 24:
 		p, err = d.pop()
 		if err != nil {
-			return err
+			return 0, err
 		}
-		d.push(-1 - int(p))
+		return int64(-1 - int(p)), nil
+
 	case 25:
 		a, err := d.take(2)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		d.push(-1 - int16(enc.Uint16(a)))
+		return int64(-1 - int16(enc.Uint16(a))), nil
+
 	case 26:
 		a, err := d.take(4)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		d.push(-1 - int32(enc.Uint32(a)))
+		return int64(-1 - int32(enc.Uint32(a))), nil
+
 	case 27:
 		a, err := d.take(8)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		d.push(-1 - int64(enc.Uint64(a)))
-	default:
-		panic("Invalid CBOR")
+		return -1 - int64(enc.Uint64(a)), nil
+
 	}
 
-	return nil
+	return 0, fmt.Errorf("invalid cbor")
 }
 
-func (d *Decoder) parseByteString() error {
+func (d *Decoder) parseByteString() ([]byte, error) {
 	p, err := d.pop()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	l := uint64(p & majorTypeMask)
 	if l >= 24 {
@@ -265,25 +233,25 @@ func (d *Decoder) parseByteString() error {
 		case 24:
 			p, err = d.pop()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			l = uint64(p)
 		case 25:
 			a, err := d.take(2)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			l = uint64(enc.Uint16(a))
 		case 26:
 			a, err := d.take(4)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			l = uint64(enc.Uint32(a))
 		case 27:
 			a, err := d.take(8)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			l = enc.Uint64(a)
 		default:
@@ -293,20 +261,17 @@ func (d *Decoder) parseByteString() error {
 
 	a, err := d.take(int(l))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	d.push(a)
-	return nil
+	return a, nil
 }
 
-func (d *Decoder) parseTextString() error {
-	err := d.parseByteString()
+func (d *Decoder) parseTextString() (string, error) {
+	data, err := d.parseByteString()
 	if err != nil {
-		return err
+		return "", err
 	}
-	v := d.objects[len(d.objects)-1]
-	d.objects[len(d.objects)-1] = string(v.([]byte))
-	return nil
+	return string(data), nil
 }
 
 func (d *Decoder) sub() *Decoder {
@@ -316,10 +281,10 @@ func (d *Decoder) sub() *Decoder {
 	}
 }
 
-func (d *Decoder) parseArray() error {
+func (d *Decoder) parseArray() (any, error) {
 	p, err := d.pop()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	l := uint64(p & majorTypeMask)
 	if l >= 24 {
@@ -327,55 +292,55 @@ func (d *Decoder) parseArray() error {
 		case 24:
 			p, err = d.pop()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			l = uint64(p)
 		case 25:
 			a, err := d.take(2)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			l = uint64(enc.Uint16(a))
 		case 26:
 			a, err := d.take(4)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			l = uint64(enc.Uint32(a))
 		case 27:
 			a, err := d.take(8)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			l = enc.Uint64(a)
 		default:
-			panic("Invalid CBOR")
+			return nil, fmt.Errorf("invalid CBOR")
 		}
-		return nil
 	}
 
 	subDecoder := d.sub()
 
-	for range l {
-		if err := subDecoder.decodeOne(); err != nil {
-			return err
+	arr := make([]any, l)
+	for i := range l {
+		a, err := subDecoder.decodeOne()
+		if err != nil {
+			return nil, err
 		}
+		arr[i] = a
 	}
 
 	d.cur += subDecoder.cur
 
 	if d.lastTag == 0x4 || d.lastTag == 0x5 {
-		exponent := forceUint64(subDecoder.objects[0])
-		mantissa := forceUint64(subDecoder.objects[1])
-		v := float64(mantissa) * math.Pow(10, float64(exponent))
-		d.push(v)
-	} else {
-		d.push(subDecoder.objects)
+		exponent := forceInt64(arr[0])
+		mantissa := forceInt64(arr[1])
+		return float64(mantissa) * math.Pow(10, float64(exponent)), nil
 	}
-	return nil
+
+	return arr, nil
 }
 
-func forceUint64(v any) int64 {
+func forceInt64(v any) int64 {
 	switch v := v.(type) {
 	case uint8:
 		return int64(v)
@@ -398,10 +363,10 @@ func forceUint64(v any) int64 {
 	}
 }
 
-func (d *Decoder) parseMap() error {
+func (d *Decoder) parseMap() (Map, error) {
 	p, err := d.pop()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	l := uint64(p & majorTypeMask)
 	if l >= 24 {
@@ -409,25 +374,25 @@ func (d *Decoder) parseMap() error {
 		case 24:
 			p, err = d.pop()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			l = uint64(p)
 		case 25:
 			a, err := d.take(2)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			l = uint64(enc.Uint16(a))
 		case 26:
 			a, err := d.take(4)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			l = uint64(enc.Uint32(a))
 		case 27:
 			a, err := d.take(8)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			l = enc.Uint64(a)
 		default:
@@ -438,66 +403,66 @@ func (d *Decoder) parseMap() error {
 	sub := d.sub()
 	mapVal := Map{}
 	for range l {
-		if err = sub.decodeOne(); err != nil {
-			return err
+		key, err := sub.decodeOne()
+		if err != nil {
+			return nil, err
 		}
-		if err = sub.decodeOne(); err != nil {
-			return err
+		val, err := sub.decodeOne()
+		if err != nil {
+			return nil, err
 		}
-		mapVal = append(mapVal, Pair{sub.objects[0], sub.objects[1]})
-		sub.objects = []any{}
+		mapVal = append(mapVal, Pair{key, val})
 	}
 
-	d.push(mapVal)
 	d.cur += sub.cur
-	return nil
+	return mapVal, nil
 }
 
-func (d *Decoder) parseMiscValue() error {
+func (d *Decoder) parseMiscValue() (any, error) {
 	p, err := d.pop()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	value := p & majorTypeMask
 	switch {
 	case value <= 23: // Simple value (0..23)
 		switch value {
 		case 20:
-			d.push(false)
+			return false, nil
 		case 21:
-			d.push(true)
+			return true, nil
 		case 22, 23:
-			d.push(nil)
+			return nil, nil
 		}
 	case value == 24: // Simple value (32..255 in following byte)
 		p, err = d.pop()
 		if err != nil {
-			return err
+			return nil, err
 		}
-		d.push(p)
+		return p, nil
 	case value == 25: // IEEE 754 Half-Precision Float (16 bits follow)
 		a, err := d.take(2)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		h := uint16(a[0])<<8 | uint16(a[1])
-		d.push(decodeHalfPrecisionFloat(h))
+		return decodeHalfPrecisionFloat(h), nil
 	case value == 26: // IEEE 754 Single-Precision Float (32 bits follow)
 		a, err := d.take(4)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		h := enc.Uint32(a)
-		d.push(math.Float32frombits(h))
+		return math.Float32frombits(h), nil
 	case value == 27: // IEEE 754 Double-Precision Float (64 bits follow)
 		a, err := d.take(8)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		h := enc.Uint64(a)
-		d.push(math.Float64frombits(h))
+		return math.Float64frombits(h), nil
 	}
-	return nil
+	return nil, nil
 }
 
 func decodeHalfPrecisionFloat(h uint16) float32 {

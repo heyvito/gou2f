@@ -1,6 +1,7 @@
 package hid
 
 import "slices"
+import "strings"
 import "github.com/karalabe/hid"
 
 var knownDevices = map[uint16][]uint16{

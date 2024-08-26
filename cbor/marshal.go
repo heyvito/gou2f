@@ -12,6 +12,9 @@ import (
 
 // #cgo CFLAGS: -g -Wall
 // #include <stdlib.h>
+// #if __has_include(<stdint.h>)
+// #include<stdint.h>
+// #endif
 // void marshalInteger(int64_t n, uint8_t buf[9], uint8_t *len, uint8_t mt) {
 //     uint64_t ui = n >> 63;
 //     if (mt == 0) {

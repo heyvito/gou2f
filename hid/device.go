@@ -9,7 +9,6 @@ import (
 	"github.com/heyvito/gou2f/cbor"
 	"github.com/heyvito/gou2f/fido"
 	"github.com/heyvito/gou2f/sec"
-	"github.com/karalabe/hid"
 	"io"
 )
 
@@ -54,22 +53,6 @@ type baseDevice interface {
 	Close() error
 	Write([]byte) (int, error)
 	Read([]byte) (int, error)
-}
-
-func ListDevices() ([]*Device, error) {
-	var devices []*Device
-	sysDevices, err := hid.Enumerate(0x00, 0x00)
-	if err != nil {
-		return nil, err
-	}
-	for _, v := range sysDevices {
-		if v.UsagePage == fidoUsagePage && v.Usage == uint16(fidoUsageU2FHID) {
-			dev := v
-			devices = append(devices, newDevice(MakeRawDevice(&dev)))
-		}
-	}
-
-	return devices, nil
 }
 
 func newDevice(dev baseDevice) *Device {

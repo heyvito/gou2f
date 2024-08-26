@@ -20,6 +20,13 @@ func ListDevices() ([]*Device, error) {
 		if !slices.Contains(vend, v.ProductID) {
 			continue
 		}
+		comps := strings.Split(v.Path, ":")
+		if len(comps) != 2 {
+			continue
+		}
+		if comps[1] != "1.1" {
+			continue
+		}
 		dev := v
 		devices = append(devices, newDevice(MakeRawDevice(&dev)))
 	}
